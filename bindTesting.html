@@ -1,0 +1,236 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+
+    <script src="http://cdnjs.cloudflare.com/ajax/libs/jasmine/1.3.1/jasmine.js"></script>
+    <script src="http://cdnjs.cloudflare.com/ajax/libs/jasmine/1.3.1/jasmine-html.js"></script>
+    <link href="http://cdnjs.cloudflare.com/ajax/libs/jasmine/1.3.1/jasmine.css" type="text/css" rel="stylesheet">
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.0.3/jquery.js"></script>
+   	<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.2.7/angular.js"></script>
+	<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.2.7/angular-mocks.js"></script>
+	<script src="./browserTrigger.js"></script>
+
+	<script>
+		window.onload = function() {
+			// Bootstrap Jasmine HTML Reporter for suite below
+			var env = jasmine.getEnv();
+			env.addReporter(new jasmine.HtmlReporter());
+			env.execute();
+		};
+	</script>
+
+  </head>
+  <body>
+
+  	<script>
+  		(function($) {
+
+	  		describe('scopes are bound', function() {
+	  			var $scope,
+	  				$compile,
+	  				template,
+	  				view;
+
+	  			beforeEach(inject(function(_$compile_, $rootScope) {
+	  				$compile = _$compile_;
+	  				$scope = $rootScope;
+	  			}));
+
+	  			describe('to a simple view', function() {
+	  				beforeEach(function() {
+	  					$scope.num = 2;
+	  					template = '<test>' + 
+				  						'<first ng-bind="num">random stuff</first>' + 
+				  						'<second>{{ num = 3 }}</second>' +
+				  						'<third>{{ num + 4 }}</third>' +
+				  						'<fourth>{{ value }}</fourth>' +
+				  						'<div ng-click="value = 15"></div>' +
+		  							'</test>';
+	  					view = $compile(template)($scope);
+	  				});
+
+  					it('using explicit and implicit watches', function() {
+		  				expect($scope.$$watchers.length).toBe(4);
+		  				$scope.$watch('num', function() {});
+		  				expect($scope.$$watchers.length).toBe(5);
+		  			});
+
+		  			it("the view is not updated until a $digest is run", function() {
+	  					expect(view.find('first').html()).toBe('random stuff');
+	  					$scope.$digest();
+	  					expect(view.find('first').html()).not.toBe('random stuff');
+	  				});
+
+  					it("$watch uses simple comparisons by default", function() {
+						$scope.guy = {};
+
+						var watch = jasmine.createSpyObj('watch', ['obj', 'property', 'deepObj']);
+						$scope.$watch('guy', watch.obj);
+						$scope.$watch('guy.name', watch.property);
+						$scope.$watch('guy', watch.deepObj, true);
+						
+						$scope.$digest();
+
+						watch.obj.reset();
+						watch.property.reset();
+						watch.deepObj.reset();
+
+						$scope.$apply(function() {
+							$scope.guy.name = 'fred';
+						});
+											
+						expect(watch.obj).not.toHaveBeenCalled();
+						expect(watch.property).toHaveBeenCalled();
+						expect(watch.deepObj).toHaveBeenCalled();
+					});
+
+	  				it("$digest or more depending how long it takes $scope to 'stabilize'", function() {
+	  					var digestCount = 0;
+	  					$scope.test = 1;
+	  					$scope.$watch('test', function() {
+	  						if($scope.test < 4) {
+	  							$scope.test++;
+	  						}
+	  					});
+	  					$scope.$watch(function() {
+	  						digestCount++;
+	  					});
+	  					$scope.$digest();
+	  					expect(digestCount).toBe(4);
+	  				});
+
+	  				it("$digest will never stabilize on watch that creates objects", function() {
+	  					template = '<div><person ng-repeat="person in getPeople()">{{ person.name }}</person></div>';
+
+	  					$scope.getPeople = function() {
+	  						return [
+	  							{name: "john"},
+	  							{name: "fred"}
+	  						];
+	  					};
+	  					$compile(template)($scope);
+	  					expect(function() {$scope.$digest();}).toThrow();
+
+	  					var people = [
+	  						{name: "john"},
+	  						{name: "fred"}
+	  					];
+	  					$scope.getPeople = function() {
+	  						return people;
+	  					};
+	  					view = $compile(template)($scope);
+	  					$scope.$digest();
+	  					expect(view.find('person').length).toBe(2);
+	  				});
+
+	  				describe("after the initial digest", function() {
+	  					beforeEach(function() {
+	  						$scope.$digest();
+	   					});
+
+	  					it("additional changes need to $apply which starts a new $digest", function() {
+	  						expect(view.find('fourth').html()).toBeFalsy();
+
+	  						view.find('fourth').on("click", function() {
+	  							$scope.value = 10;
+	  						});
+	  						view.find('fourth')[0].click();
+	  						expect(view.find('fourth').html()).toBeFalsy();
+
+	  						view.find('fourth').off().on("click", function() {
+	  							$scope.$apply(function() {
+	  								$scope.value = 12;
+	  							});
+	  						});
+	  						view.find('fourth')[0].click();
+	  						expect(view.find('fourth').html()).toBe('12');
+	  					});
+
+	  					it("$apply happens auto-magically in angular world", function() {
+	  						expect(view.find('fourth').html()).toBeFalsy();
+	  						browserTrigger(view.find('div'), "click");
+	  						expect(view.find('fourth').html()).toBe('15');
+	  					});
+
+		  				it('binding should work with ng-bind or {{ }}', function() {
+		  					expect(view.find('first').html()).toBe('3');	  				
+			  				expect(view.find('second').html()).toBe('3');
+			  				expect(view.find('third').html()).toBe('7');
+			  			});
+
+			  			it('and from view to model', function() {
+			  				expect($scope.num).toBe(3);
+			  			});
+	  				})
+	  			});
+
+				describe("a more dynamic view", function() {
+					beforeEach(function() {
+						$scope.people = [
+							{
+								name: 'john',
+								age: 18
+							},
+							{
+								name: 'jane',
+								age: 25
+							}
+						];
+						$scope.personOfDay = 'jane';
+						$scope.averageAge = function(people) {
+							var totalAge = 0;
+							angular.forEach(people, function(person) {
+								totalAge += person.age;
+							});
+							return totalAge / people.length;
+						}
+						template = 	'<test>' +
+										'<div ng-repeat="person in people">' +
+											'<span>{{ person.name }} is {{ person.age }} years old</span>' +
+											'<button class="{{ person.name }} pod" ng-click="personOfDay = person.name" />' +
+											'<button class="{{ person.name }} name" ng-click="person.name = \'fred\'" />' +
+										'</div>' +
+										'<span>average age {{ averageAge(people) }}</span>' +
+										'<pod ng-bind="personOfDay"></pod>' +
+									'</test>';
+						view = $compile(template)($scope);
+						$scope.$digest();
+					});
+
+					it("should have multiple elements in ng-repeat", function() {
+						expect(view.find("div").length).toBe(2);
+					});
+
+					it("but we need to be careful of implicit child scopes", function() {
+						expect(view.find("pod").html()).toBe("jane");
+						browserTrigger(view.find("button.john.pod"), "click");
+						expect(view.find("pod").html()).toBe("jane");
+
+						var $newScope = $scope.$new();
+						$newScope.people = $scope.people;
+						$newScope.personOfDay = {
+							current: "jane"
+						};
+						view.find("button").attr("ng-click", "personOfDay.current = person.name");
+						view.find("pod").attr("ng-bind", "personOfDay.current");
+						view = $compile(view[0].outerHTML)($newScope);
+						$newScope.$digest();
+
+						browserTrigger(view.find("button.john"), "click");
+						expect(view.find("pod").html()).toBe("john");
+					});
+				});
+	  		});
+
+  			/**
+			* @link https://github.com/angular/angular.js/commit/117f4ddba96a12224d878cbf9c6846f4c9954971
+			*/
+			// describe("promises", function() {
+			// })
+
+		})(jQuery);
+   	</script>
+  </body>
+</html>
